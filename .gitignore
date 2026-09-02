@@ -1,0 +1,16 @@
+# Build output
+Debug/
+Release/
+build/
+
+# CubeIDE / Eclipse workspace metadata
+.metadata/
+
+# OS noise
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.bak
+*.swp
