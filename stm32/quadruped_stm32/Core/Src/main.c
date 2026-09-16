@@ -22,6 +22,8 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "bmi088.h"
+#include "robstride_can.h"
+#include "robot_joints.h"
 #include <stdio.h>
 
 /* USER CODE END Includes */
@@ -49,8 +51,33 @@ FDCAN_HandleTypeDef hfdcan1;
 SPI_HandleTypeDef hspi3;
 
 /* USER CODE BEGIN PV */
+static const struct
+{
+    MotorId_t joint;
+    const char *name;
+    float target_rad;
+} standing_targets[] =
+{
+    {MOTOR_FL_HAA, "FL_HAA",  0.0f},
+    {MOTOR_FL_HFE, "FL_HFE", -0.62f},
+    {MOTOR_FL_KFE, "FL_KFE",  1.2f},
+    {MOTOR_FR_HAA, "FR_HAA",  0.0f},
+    {MOTOR_FR_HFE, "FR_HFE", -0.62f},
+    {MOTOR_FR_KFE, "FR_KFE",  1.2f},
+    {MOTOR_RL_HAA, "RL_HAA",  0.0f},
+    {MOTOR_RL_HFE, "RL_HFE", -0.62f},
+    {MOTOR_RL_KFE, "RL_KFE",  1.2f},
+    {MOTOR_RR_HAA, "RR_HAA",  0.0f},
+    {MOTOR_RR_HFE, "RR_HFE", -0.62f},
+    {MOTOR_RR_KFE, "RR_KFE",  1.2f}
+};
+
+#define STANDING_JOINT_COUNT (sizeof(standing_targets) / sizeof(standing_targets[0]))
+
 volatile uint8_t acc_data_ready = 0;
 volatile uint8_t gyro_data_ready = 0;
+volatile uint8_t user_button_pressed = 0;
+volatile uint32_t last_button_irq = 0;
 
 volatile uint32_t acc_irq_count = 0;
 volatile uint32_t gyro_irq_count = 0;
@@ -67,6 +94,25 @@ static void MX_SPI3_Init(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+/* Return true only when every stop request was queued successfully. */
+static uint8_t StopAllJoints(void)
+{
+    uint8_t all_stopped = 1;
+
+    for (uint8_t i = 0; i < STANDING_JOINT_COUNT; i++)
+    {
+        JointResult_t result = RobotJoints_Stop(standing_targets[i].joint);
+        if (result != JOINT_OK)
+        {
+            printf("%s stop failed: %d\r\n", standing_targets[i].name, result);
+            all_stopped = 0;
+        }
+        HAL_Delay(2);
+        RobStride_CAN_Process();
+    }
+
+    return all_stopped;
+}
 
 /* USER CODE END 0 */
 
@@ -103,26 +149,6 @@ int main(void)
   MX_SPI3_Init();
   /* USER CODE BEGIN 2 */
 
-  BMI088_Data_t imu = {0};
-
-  if (!BMI088_Init())
-  {
-      printf("BMI088 init failed\r\n");
-  }
-  else
-  {
-      printf("BMI088 init success\r\n");
-  }
-
-  int16_t acc_x, acc_y, acc_z;
-  int16_t gyro_x, gyro_y, gyro_z;
-  float acc_x_g, acc_y_g, acc_z_g;
-  float gyro_x_dps, gyro_y_dps, gyro_z_dps;
-
-  uint32_t gyro_count = 0;
-
-  printf("end\r\n");
-
   /* USER CODE END 2 */
 
   /* Initialize led */
@@ -142,37 +168,204 @@ int main(void)
     Error_Handler();
   }
 
-  uint32_t last_report = HAL_GetTick();
-
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
+
+  BMI088_Data_t imu = {0};
+
+  if (!BMI088_Init())
+  {
+      printf("BMI088 init failed\r\n");
+  }
+  else
+  {
+      printf("BMI088 init success\r\n");
+  }
+
+  if (!RobStride_CAN_Init())
+  {
+      printf("CAN init failed\r\n");
+  }
+  else
+  {
+      printf("CAN init success\r\n");
+
+      RobStride_RequestAllDeviceIDs();
+
+      HAL_Delay(200);
+
+      /*
+       * responses are sitting in FIFO0,
+       * so process them before inspecting states.
+       */
+      RobStride_CAN_Process();
+
+      RobStride_SetAllActiveReporting(1);
+
+      uint8_t online_count = 0;
+
+      for (uint8_t id = 1; id <= ROBSTRIDE_MOTOR_COUNT; id++)
+      {
+          const RobStride_Motor_t *motor =
+              RobStride_GetMotor((MotorId_t)id);
+
+          if (motor != NULL && motor->online)
+          {
+              printf("Motor %2u: ONLINE\r\n", id);
+              online_count++;
+          }
+          else
+          {
+              printf("Motor %2u: OFFLINE\r\n", id);
+          }
+      }
+
+      printf("%u/%u motors online\r\n",
+             online_count,
+             ROBSTRIDE_MOTOR_COUNT);
+  }
+
+  RobotJoints_Init();
+
+  /* Remain set after a failed stop so the next press retries stopping. */
+  uint8_t standing_enabled = 0;
+
+  uint32_t last_joint_print = 0;
+
   while (1)
   {
-	  if (acc_data_ready)
-	  {
-	      acc_data_ready = 0;
-	      BMI088_ReadAccel(&imu);
-	  }
+      RobStride_CAN_Process();
 
-	  if (gyro_data_ready)
-	  {
-	      gyro_data_ready = 0;
-	      BMI088_ReadGyro(&imu);
-	  }
+      RobStride_UpdateOnlineStatus();
 
-      if (HAL_GetTick() - last_report >= 1000)
+      if (HAL_GetTick() - last_joint_print >= 500)
       {
-          last_report += 100;
+          last_joint_print = HAL_GetTick();
 
-          printf("ACC: %.3f %.3f %.3f  GYRO: %.2f %.2f %.2f\r\n",
-                 imu.acc_x_g,
-                 imu.acc_y_g,
-                 imu.acc_z_g,
-                 imu.gyro_x_dps,
-                 imu.gyro_y_dps,
-                 imu.gyro_z_dps);
+          for (uint8_t id = 1; id <= ROBSTRIDE_MOTOR_COUNT; id++)
+          {
+              JointState_t state;
+
+              if (RobotJoints_GetState((MotorId_t)id, &state))
+              {
+                  printf(
+                      "Motor %2u: joint=%+.4f rad, torque=%+.3f Nm, temp=%.1f C, %s",
+                      id,
+                      state.position_rad,
+                      state.torque_nm,
+                      state.temperature_c,
+                      state.online ? "ONLINE" : "OFFLINE"
+                  );
+                  for (uint8_t i = 0; i < STANDING_JOINT_COUNT; i++)
+                  {
+                      if ((MotorId_t)id == standing_targets[i].joint)
+                      {
+                          /* Signed remaining angle: target minus feedback. */
+                          printf(
+                              ", %s target=%+.4f rad, error=%+.4f rad",
+                              standing_targets[i].name,
+                              standing_targets[i].target_rad,
+                              standing_targets[i].target_rad - state.position_rad
+                          );
+                          break;
+                      }
+                  }
+                  printf("\r\n");
+              }
+              else
+              {
+                  printf("Motor %2u: state unavailable\r\n", id);
+              }
+              /* Service feedback between the blocking serial output lines. */
+              RobStride_CAN_Process();
+          }
+      }
+
+      if (user_button_pressed)
+      {
+          user_button_pressed = 0;
+
+          if (!standing_enabled)
+          {
+              uint8_t all_commanded = 1;
+
+              /* Check the entire group before starting to enable any joint. */
+              for (uint8_t i = 0; i < STANDING_JOINT_COUNT; i++)
+              {
+                  JointState_t state;
+                  if (!RobotJoints_GetState(standing_targets[i].joint, &state) ||
+                      !state.online || state.fault_bits != 0)
+                  {
+                      printf("%s not ready: offline or faulted\r\n",
+                             standing_targets[i].name);
+                      all_commanded = 0;
+                  }
+              }
+              if (!all_commanded)
+              {
+                  continue;
+              }
+
+              for (uint8_t i = 0; i < STANDING_JOINT_COUNT; i++)
+              {
+                  JointResult_t result = RobotJoints_Enable(standing_targets[i].joint);
+                  if (result != JOINT_OK)
+                  {
+                      printf("%s enable failed: %d\r\n", standing_targets[i].name, result);
+                      all_commanded = 0;
+                      break;
+                  }
+
+                  /* Allow queued CAN frames to drain between requests. */
+                  HAL_Delay(2);
+                  RobStride_CAN_Process();
+                  result = RobotJoints_Command(
+                      standing_targets[i].joint,
+                      standing_targets[i].target_rad,
+                      0.0f,
+                      0.0f,
+                      12.0f,
+                      1.0f
+                  );
+                  if (result != JOINT_OK)
+                  {
+                      printf("%s command failed: %d\r\n", standing_targets[i].name, result);
+                      all_commanded = 0;
+                      break;
+                  }
+                  HAL_Delay(2);
+                  RobStride_CAN_Process();
+              }
+
+              if (all_commanded)
+              {
+                  standing_enabled = 1;
+                  printf("All 12 joint commands queued: HAA=0, HFE=-0.8, KFE=+1.5 rad, kp=10, kd=0.5\r\n");
+              }
+              else
+              {
+                  /* Stop the whole group if activation was only partial. */
+                  standing_enabled = !StopAllJoints();
+              }
+          }
+          else
+          {
+              if (StopAllJoints())
+              {
+                  standing_enabled = 0;
+                  printf("All 12 joint stop requests queued\r\n");
+              }
+              else
+              {
+                  printf("Joint stop incomplete; press button to retry\r\n");
+              }
+          }
       }
   }
+    /* USER CODE END WHILE */
+
+    /* USER CODE BEGIN 3 */
+
   /* USER CODE END 3 */
 }
 
@@ -241,19 +434,19 @@ static void MX_FDCAN1_Init(void)
   hfdcan1.Init.ClockDivider = FDCAN_CLOCK_DIV1;
   hfdcan1.Init.FrameFormat = FDCAN_FRAME_CLASSIC;
   hfdcan1.Init.Mode = FDCAN_MODE_NORMAL;
-  hfdcan1.Init.AutoRetransmission = DISABLE;
+  hfdcan1.Init.AutoRetransmission = ENABLE;
   hfdcan1.Init.TransmitPause = DISABLE;
   hfdcan1.Init.ProtocolException = DISABLE;
-  hfdcan1.Init.NominalPrescaler = 16;
+  hfdcan1.Init.NominalPrescaler = 10;
   hfdcan1.Init.NominalSyncJumpWidth = 1;
-  hfdcan1.Init.NominalTimeSeg1 = 1;
-  hfdcan1.Init.NominalTimeSeg2 = 1;
+  hfdcan1.Init.NominalTimeSeg1 = 13;
+  hfdcan1.Init.NominalTimeSeg2 = 3;
   hfdcan1.Init.DataPrescaler = 1;
   hfdcan1.Init.DataSyncJumpWidth = 1;
   hfdcan1.Init.DataTimeSeg1 = 1;
   hfdcan1.Init.DataTimeSeg2 = 1;
   hfdcan1.Init.StdFiltersNbr = 0;
-  hfdcan1.Init.ExtFiltersNbr = 0;
+  hfdcan1.Init.ExtFiltersNbr = 1;
   hfdcan1.Init.TxFifoQueueMode = FDCAN_TX_FIFO_OPERATION;
   if (HAL_FDCAN_Init(&hfdcan1) != HAL_OK)
   {
@@ -326,6 +519,12 @@ static void MX_GPIO_Init(void)
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOB, ACC_CS_Pin|GYRO_CS_Pin, GPIO_PIN_SET);
 
+  /*Configure GPIO pin : B1_BUTTON_Pin */
+  GPIO_InitStruct.Pin = B1_BUTTON_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_FALLING;
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
+  HAL_GPIO_Init(B1_BUTTON_GPIO_Port, &GPIO_InitStruct);
+
   /*Configure GPIO pins : ACC_INT_Pin GYRO_INT_Pin */
   GPIO_InitStruct.Pin = ACC_INT_Pin|GYRO_INT_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
@@ -346,6 +545,9 @@ static void MX_GPIO_Init(void)
   HAL_NVIC_SetPriority(EXTI9_5_IRQn, 0, 0);
   HAL_NVIC_EnableIRQ(EXTI9_5_IRQn);
 
+  HAL_NVIC_SetPriority(EXTI15_10_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(EXTI15_10_IRQn);
+
   /* USER CODE BEGIN MX_GPIO_Init_2 */
 
   /* USER CODE END MX_GPIO_Init_2 */
@@ -365,6 +567,17 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
     {
         gyro_data_ready = 1;
         gyro_irq_count++;
+    }
+
+    if (GPIO_Pin == B1_BUTTON_Pin)
+    {
+        uint32_t now = HAL_GetTick();
+
+        if (now - last_button_irq > 50)
+        {
+            last_button_irq = now;
+            user_button_pressed = 1;
+        }
     }
 }
 

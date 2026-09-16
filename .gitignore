@@ -14,3 +14,8 @@ Thumbs.db
 *.tmp
 *.bak
 *.swp
+project_context.md
+__pycache__
+actuator manual.pdf
+stm32 manual.pdf
+test.py
