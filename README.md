@@ -33,7 +33,7 @@ The BMI088 IMU driver is present, but sensing is not yet integrated into motion 
 
 ## Hardware
 
-The robot is my original CAD design, with structural parts 3D printed in **PPA-CF**. It currently weighs approximately **15 kg**, putting it in the same weight class as the [Unitree Go2](https://www.unitree.com/mobile/go2/).
+The robot is my original CAD design, with structural parts 3D printed in PPA-CF. It currently weighs approximately 15 kg, putting it in the same weight class as the Unitree Go2.
 
 | Component | Role |
 | --- | --- |
