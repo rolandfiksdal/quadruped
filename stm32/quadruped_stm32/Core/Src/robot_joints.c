@@ -1,11 +1,13 @@
 #include "robot_joints.h"
 #include <stddef.h>
+#include <math.h>
 
 /* Constants */
 
 #define DEG_TO_RAD 0.01745329252f
 #define PI_F       3.14159265f
 #define TWO_PI_F   6.28318531f
+#define START_POSITION_TOLERANCE_RAD 0.008f
 
 /* Private calibration data; array index is the motor/joint ID. */
 
@@ -183,8 +185,8 @@ void RobotJoints_Init(void)
         .motor_reference_rad = -0.177f,
         .joint_reference_rad = 134.82f * DEG_TO_RAD,
 
-        .min_rad = 47.39f * DEG_TO_RAD,
-        .max_rad = 134.82f * DEG_TO_RAD
+        .min_rad = 0.811f,
+        .max_rad = 2.34f
     };
 
     joint_config[MOTOR_FR_KFE] = (JointConfig_t)
@@ -194,8 +196,8 @@ void RobotJoints_Init(void)
         .motor_reference_rad = +0.184f,
         .joint_reference_rad = 134.82f * DEG_TO_RAD,
 
-        .min_rad = 48.25f * DEG_TO_RAD,
-        .max_rad = 134.82f * DEG_TO_RAD
+        .min_rad = 0.843f,
+        .max_rad = 2.344f
     };
 
     joint_config[MOTOR_RL_KFE] = (JointConfig_t)
@@ -205,8 +207,8 @@ void RobotJoints_Init(void)
         .motor_reference_rad = +4.000f,
         .joint_reference_rad = 134.82f * DEG_TO_RAD,
 
-        .min_rad = 45.44f * DEG_TO_RAD,
-        .max_rad = 134.82f * DEG_TO_RAD
+        .min_rad = 0.821f,
+        .max_rad = 2.39f
     };
 
     joint_config[MOTOR_RR_KFE] = (JointConfig_t)
@@ -216,8 +218,8 @@ void RobotJoints_Init(void)
         .motor_reference_rad = +5.525f,
         .joint_reference_rad = 134.82f * DEG_TO_RAD,
 
-        .min_rad = 47.90f * DEG_TO_RAD,
-        .max_rad = 134.82f * DEG_TO_RAD
+        .min_rad = 0.82f,
+        .max_rad = 2.35f
     };
 }
 
@@ -287,7 +289,59 @@ float RobotJoints_GetMotorTarget(
         joint_position_rad);
 }
 
+uint8_t RobotJoints_PrepareStartPosition(
+    MotorId_t joint,
+    float measured_position_rad,
+    float *start_position_rad)
+{
+    if (!RobotJoints_IsValid(joint) ||
+        start_position_rad == NULL ||
+        !isfinite(measured_position_rad))
+    {
+        return 0;
+    }
+
+    const JointConfig_t *config = &joint_config[joint];
+
+    if (measured_position_rad < config->min_rad - START_POSITION_TOLERANCE_RAD ||
+        measured_position_rad > config->max_rad + START_POSITION_TOLERANCE_RAD)
+    {
+        return 0;
+    }
+
+    float target = measured_position_rad;
+
+    if (target < config->min_rad)
+    {
+        target = config->min_rad;
+    }
+    else if (target > config->max_rad)
+    {
+        target = config->max_rad;
+    }
+
+    *start_position_rad = target;
+    return 1;
+}
+
 /* Joint control */
+
+JointResult_t RobotJoints_ValidatePosition(MotorId_t joint, float position_rad)
+{
+    if (!RobotJoints_IsValid(joint))
+    {
+        return JOINT_INVALID_ID;
+    }
+
+    const JointConfig_t *config = &joint_config[joint];
+    if (!isfinite(position_rad) || position_rad < config->min_rad ||
+        position_rad > config->max_rad)
+    {
+        return JOINT_OUT_OF_RANGE;
+    }
+
+    return JOINT_OK;
+}
 
 JointResult_t RobotJoints_Enable(MotorId_t joint)
 {
@@ -365,8 +419,7 @@ JointResult_t RobotJoints_Command(
      * Never silently command outside the
      * calibrated mechanical range.
      */
-    if (position_rad < config->min_rad ||
-        position_rad > config->max_rad)
+    if (RobotJoints_ValidatePosition(joint, position_rad) != JOINT_OK)
     {
         return JOINT_OUT_OF_RANGE;
     }

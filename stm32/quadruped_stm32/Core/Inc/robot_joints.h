@@ -46,7 +46,16 @@ float RobotJoints_GetMotorTarget(
     float joint_position_rad
 );
 
+/* Returns 1 with an accepted starting target, or 0 on invalid input/range. */
+uint8_t RobotJoints_PrepareStartPosition(
+    MotorId_t joint,
+    float measured_position_rad,
+    float *start_position_rad);
+
 /* Joint control */
+
+/* Check a finite position against command limits without sending anything. */
+JointResult_t RobotJoints_ValidatePosition(MotorId_t joint, float position_rad);
 
 /* JOINT_OK means the CAN request was queued, not acknowledged by the motor. */
 JointResult_t RobotJoints_Enable(MotorId_t joint);

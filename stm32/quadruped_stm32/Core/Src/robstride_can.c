@@ -250,6 +250,20 @@ uint8_t RobStride_CAN_Init(void)
     return 1;
 }
 
+uint8_t RobStride_CAN_CanSend(void)
+{
+    uint32_t free_slots = HAL_FDCAN_GetTxFifoFreeLevel(&hfdcan1);
+
+    if (free_slots == 0)
+    {
+        return 0;
+    }
+    else
+    {
+        return 1;
+    }
+}
+
 void RobStride_CAN_Process(void)
 {
     if (!can_rx_pending)

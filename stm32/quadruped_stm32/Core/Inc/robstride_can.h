@@ -55,6 +55,9 @@ typedef struct
 /* Returns 1 on successful CAN setup, 0 on failure. */
 uint8_t RobStride_CAN_Init(void);
 
+/* Does the hardware transmit queue currently have room for another message? */
+uint8_t RobStride_CAN_CanSend(void);
+
 /* Drain pending feedback in the main loop; decoding does not run in the ISR. */
 void RobStride_CAN_Process(void);
 
