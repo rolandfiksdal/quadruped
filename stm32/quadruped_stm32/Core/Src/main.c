@@ -301,7 +301,7 @@ static void StartPoseTransition(PoseTarget_t requested_pose)
     last_batch_duration_ms = 0;
     max_batch_duration_ms = 0;
 
-    printf("Moving to %s over 1 second\r\n", name);
+    printf("Moving to %s over 2 seconds\r\n", name);
     transition_start_ms = HAL_GetTick();
     last_command_ms = transition_start_ms - COMMAND_INTERVAL_MS;
     pose_state = POSE_TRANSITIONING;
@@ -542,7 +542,7 @@ int main(void)
                 last_command_ms = now;
 
                 uint32_t elapsed_ms = now - transition_start_ms;
-                batch_progress = (float)elapsed_ms / 1000.0f;
+                batch_progress = (float)elapsed_ms / 2000.0f;
 
                 if (batch_progress > 1.0f)
                 {
@@ -581,7 +581,7 @@ int main(void)
                     target,
                     0.0f,
                     0.0f,
-                    50.0f,
+                    60.0f,
                     1.0f);
 
                 if (result != JOINT_OK)
