@@ -582,7 +582,7 @@ int main(void)
                     0.0f,
                     0.0f,
                     60.0f,
-                    1.0f);
+                    5.0f);
 
                 if (result != JOINT_OK)
                 {

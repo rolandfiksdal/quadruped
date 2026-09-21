@@ -12,7 +12,7 @@ A personal robotics project built around 12 RobStride actuators and an STM32 con
 
 *Leg mechanism with the cover removed.*
 
-[![Watch the pose sequence on the floor](https://img.youtube.com/vi/kTkdTzKSAXw/hqdefault.jpg)](https://www.youtube.com/watch?v=kTkdTzKSAXw)
+[![Watch the pose sequence on the floor](https://img.youtube.com/vi/kTkdTzKSAXw/hqdefault.jpg)](https://www.youtube.com/watch?v=R-0c6qNww3c)
 
 *Pose sequence physical test — recorded 20 September 2026.*
 
