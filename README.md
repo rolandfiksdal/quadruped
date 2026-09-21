@@ -14,7 +14,7 @@ A personal robotics project built around 12 RobStride actuators and an STM32 con
 
 [![Watch the pose sequence on the floor](https://img.youtube.com/vi/kTkdTzKSAXw/hqdefault.jpg)](https://www.youtube.com/watch?v=R-0c6qNww3c)
 
-*Pose sequence physical test — recorded 20 September 2026.*
+*Pose sequence physical test — recorded 21 September 2026.*
 
 ## What works so far
 
