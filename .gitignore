@@ -17,6 +17,7 @@ Thumbs.db
 *.bak
 *.swp
 project_context.md
+docs/motor-health-validation.md
 __pycache__/
 *.py[cod]
 .venv/

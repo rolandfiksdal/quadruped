@@ -29,7 +29,7 @@ Pose changes currently use a two-second smooth transition, with joint targets up
 Disabled -> Retracted -> Standing -> Retracted -> Resting -> Disabled
 ```
 
-Motor-health monitoring requests all motors stop on offline, faulted, or missing/stale measurement state during movement or holding. Holding-fault injection and MCU-reset startup stopping have been tested on hardware. Feedback freshness and malformed-frame handling have offline regression coverage; the provisional 500 ms timeout and remaining physical failure cases still need validation. Stop requests are not acknowledged proof of motor disable. See the [validation procedure](docs/motor-health-validation.md).
+Motor-health monitoring requests all motors stop on faults, offline motors, or missing/stale feedback. Holding-fault injection and MCU-reset startup stopping have been tested on hardware; feedback freshness and malformed-frame handling have offline tests. The 500 ms freshness timeout is provisional, and stop delivery is not acknowledged.
 
 ## Offline kinematics and gait model
 
