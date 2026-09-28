@@ -176,8 +176,19 @@ static void RobStride_HandleFeedbackFrame(uint32_t identifier,
     motor->mode =
         (identifier >> 22) & 0x03;
 
+    uint32_t now = HAL_GetTick();
+    if (motor->feedback_received)
+    {
+        motor->feedback_gap_last_ms = now - motor->last_feedback_ms;
+        if (motor->feedback_gap_last_ms > motor->feedback_gap_max_ms)
+        {
+            motor->feedback_gap_max_ms = motor->feedback_gap_last_ms;
+        }
+    }
+    motor->last_feedback_ms = now;
+    motor->feedback_received = 1;
     motor->online = 1;
-    motor->last_update_ms = HAL_GetTick();
+    motor->last_update_ms = now;
 }
 
 static void RobStride_HandleFrame(uint32_t identifier,
@@ -284,7 +295,8 @@ void RobStride_CAN_Process(void)
                FDCAN_RX_FIFO0) > 0)
     {
         FDCAN_RxHeaderTypeDef rxHeader;
-        uint8_t data[8];
+        /* HAL copies the payload before we can validate its reported length. */
+        uint8_t data[64];
 
         if (HAL_FDCAN_GetRxMessage(
                 &hfdcan1,
@@ -293,6 +305,15 @@ void RobStride_CAN_Process(void)
                 data) != HAL_OK)
         {
             break;
+        }
+
+        /* A short/remote/FD/standard frame cannot establish valid feedback. */
+        if (rxHeader.IdType != FDCAN_EXTENDED_ID ||
+            rxHeader.RxFrameType != FDCAN_DATA_FRAME ||
+            rxHeader.FDFormat != FDCAN_CLASSIC_CAN ||
+            rxHeader.DataLength != FDCAN_DLC_BYTES_8)
+        {
+            continue;
         }
 
         RobStride_HandleFrame(

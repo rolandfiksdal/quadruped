@@ -96,31 +96,31 @@ static const JointTarget_t retracted_targets[] =
     {
         {MOTOR_FL_HAA, "FL_HAA", 0.0f},
         {MOTOR_FL_HFE, "FL_HFE", -0.852f},
-        {MOTOR_FL_KFE, "FL_KFE", 2.340f},
+        {MOTOR_FL_KFE, "FL_KFE", 2.34f},
         {MOTOR_FR_HAA, "FR_HAA", 0.0f},
         {MOTOR_FR_HFE, "FR_HFE", -0.853f},
-        {MOTOR_FR_KFE, "FR_KFE", 2.344f},
+        {MOTOR_FR_KFE, "FR_KFE", 2.34f},
         {MOTOR_RL_HAA, "RL_HAA", 0.0f},
         {MOTOR_RL_HFE, "RL_HFE", -0.877f},
-        {MOTOR_RL_KFE, "RL_KFE", 2.37f},
+        {MOTOR_RL_KFE, "RL_KFE", 2.34f},
         {MOTOR_RR_HAA, "RR_HAA", 0.0f},
         {MOTOR_RR_HFE, "RR_HFE", -0.857f},
-        {MOTOR_RR_KFE, "RR_KFE", 2.348f}};
+        {MOTOR_RR_KFE, "RR_KFE", 2.34f}};
 
 static const JointTarget_t resting_targets[] =
     {
         {MOTOR_FL_HAA, "FL_HAA", -0.47f},
         {MOTOR_FL_HFE, "FL_HFE", -0.852f},
-        {MOTOR_FL_KFE, "FL_KFE", 2.340f},
+        {MOTOR_FL_KFE, "FL_KFE", 2.34f},
         {MOTOR_FR_HAA, "FR_HAA", -0.47f},
         {MOTOR_FR_HFE, "FR_HFE", -0.853f},
-        {MOTOR_FR_KFE, "FR_KFE", 2.344f},
+        {MOTOR_FR_KFE, "FR_KFE", 2.34f},
         {MOTOR_RL_HAA, "RL_HAA", -0.47f},
         {MOTOR_RL_HFE, "RL_HFE", -0.877f},
-        {MOTOR_RL_KFE, "RL_KFE", 2.37f},
+        {MOTOR_RL_KFE, "RL_KFE", 2.34f},
         {MOTOR_RR_HAA, "RR_HAA", -0.47f},
         {MOTOR_RR_HFE, "RR_HFE", -0.857f},
-        {MOTOR_RR_KFE, "RR_KFE", 2.348f}};
+        {MOTOR_RR_KFE, "RR_KFE", 2.34f}};
 
 #define POSE_JOINT_COUNT (sizeof(standing_targets) / sizeof(standing_targets[0]))
 
@@ -144,7 +144,8 @@ float batch_progress = 0.0f;
 uint32_t last_batch_gap_ms = 0;
 uint32_t max_batch_gap_ms = 0;
 uint8_t have_previous_batch = 0;
-PoseState_t pose_state = POSE_DISABLED;
+/* Powered actuators may still be active after an MCU-only reset. */
+PoseState_t pose_state = POSE_STOPPING;
 
 volatile uint8_t acc_data_ready = 0;
 volatile uint8_t gyro_data_ready = 0;
@@ -166,6 +167,46 @@ static void MX_SPI3_Init(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+static const char *JointHealthReason(JointResult_t result)
+{
+    switch (result)
+    {
+        case JOINT_OK: return "healthy";
+        case JOINT_INVALID_ID: return "invalid joint ID";
+        case JOINT_OFFLINE: return "offline or state unavailable";
+        case JOINT_FAULT: return "motor fault reported";
+        case JOINT_NO_FEEDBACK: return "no measurement feedback received";
+        case JOINT_STALE_FEEDBACK: return "measurement feedback stale";
+        default: return "unexpected joint result";
+    }
+}
+
+/* Supported-test policy: cancel motion and request all motors stop.
+ * Disabling removes support; this is not a controlled ground-standing recovery.
+ */
+static void MonitorPoseHealth(void)
+{
+    if (pose_state != POSE_TRANSITIONING && pose_state != POSE_HOLDING)
+    {
+        return;
+    }
+
+    for (uint8_t i = 0; i < POSE_JOINT_COUNT; i++)
+    {
+        JointResult_t health = RobotJoints_CheckHealth(active_targets[i].joint);
+        if (health != JOINT_OK)
+        {
+            batch_in_progress = 0;
+            pose_state = POSE_STOPPING;
+            user_button_pressed = 0;
+            /* Report once: subsequent checks skip POSE_STOPPING. */
+            printf("%s unhealthy: %s; requesting all motors stop\r\n",
+                   active_targets[i].name, JointHealthReason(health));
+            return;
+        }
+    }
+}
+
 /* Return true only when every stop request was queued successfully. */
 static uint8_t StopAllJoints(void)
 {
@@ -186,6 +227,8 @@ static uint8_t StopAllJoints(void)
     batch_in_progress = 0;
     if (all_stopped)
     {
+        /* Discard presses received while stop requests were being submitted. */
+        user_button_pressed = 0;
         pose_state = POSE_DISABLED;
         selected_pose = TARGET_RETRACTED;
         active_targets = retracted_targets;
@@ -199,6 +242,11 @@ static uint8_t StopAllJoints(void)
 /* Validate the whole destination and capture measured starts before moving. */
 static void StartPoseTransition(PoseTarget_t requested_pose)
 {
+    if (pose_state != POSE_DISABLED && pose_state != POSE_HOLDING)
+    {
+        return;
+    }
+
     const JointTarget_t *targets;
     const char *name;
 
@@ -246,10 +294,16 @@ static void StartPoseTransition(PoseTarget_t requested_pose)
     for (uint8_t i = 0; i < POSE_JOINT_COUNT; i++)
     {
         JointState_t state;
-        if (!RobotJoints_GetState(targets[i].joint, &state) ||
-            !state.online || state.fault_bits != 0)
+        JointResult_t health = RobotJoints_CheckHealth(targets[i].joint);
+        if (health != JOINT_OK)
         {
-            printf("%s not ready: offline or faulted\r\n", targets[i].name);
+            printf("%s not ready: %s\r\n",
+                   targets[i].name, JointHealthReason(health));
+            ready = 0;
+        }
+        else if (!RobotJoints_GetState(targets[i].joint, &state))
+        {
+            printf("%s not ready: state unavailable\r\n", targets[i].name);
             ready = 0;
         }
         else if (!RobotJoints_PrepareStartPosition(targets[i].joint,
@@ -364,24 +418,26 @@ int main(void)
     /* Infinite loop */
     /* USER CODE BEGIN WHILE */
 
-    BMI088_Data_t imu = {0};
-
-    if (!BMI088_Init())
-    {
-        printf("BMI088 init failed\r\n");
-    }
-    else
-    {
-        printf("BMI088 init success\r\n");
-    }
+    RobotJoints_Init();
 
     if (!RobStride_CAN_Init())
     {
-        printf("CAN init failed\r\n");
+        printf("CAN init failed; startup blocked, motor stops not confirmed\r\n");
+        Error_Handler();
     }
     else
     {
         printf("CAN init success\r\n");
+
+        /* Stop before discovery, reporting setup, or IMU initialization.
+         * RobotJoints_Stop does not require a motor to be discovered/online.
+         * Stay here on submission failure; pose/button handling cannot run.
+         */
+        while (!StopAllJoints())
+        {
+            user_button_pressed = 0;
+        }
+        printf("Startup: all 12 stop requests queued; motor disable unconfirmed\r\n");
 
         RobStride_RequestAllDeviceIDs();
 
@@ -418,9 +474,20 @@ int main(void)
                ROBSTRIDE_MOTOR_COUNT);
     }
 
-    RobotJoints_Init();
+    if (!BMI088_Init())
+    {
+        printf("BMI088 init failed\r\n");
+    }
+    else
+    {
+        printf("BMI088 init success\r\n");
+    }
 
-    /* Remain set after a failed stop so the next press retries stopping. */
+    printf("Feedback timeout: %lu ms (provisional supported-test limit)\r\n",
+           (unsigned long)ROBOT_FEEDBACK_TIMEOUT_MS);
+    printf("Startup complete; press button to begin\r\n");
+    /* Also discard presses during discovery, IMU init, and startup logging. */
+    user_button_pressed = 0;
 
     uint32_t last_joint_print = 0;
 
@@ -429,6 +496,8 @@ int main(void)
         RobStride_CAN_Process();
 
         RobStride_UpdateOnlineStatus();
+
+        MonitorPoseHealth();
 
         if ((pose_state == POSE_DISABLED || pose_state == POSE_HOLDING) &&
             HAL_GetTick() - last_joint_print >= 800)
@@ -450,6 +519,19 @@ int main(void)
                         state.torque_nm,
                         state.temperature_c,
                         state.online ? "ONLINE" : "OFFLINE");
+                    if (state.feedback_received)
+                    {
+                        printf(", feedback age=%lu ms, gap last/max=%lu/%lu ms%s",
+                               (unsigned long)state.feedback_age_ms,
+                               (unsigned long)state.feedback_gap_last_ms,
+                               (unsigned long)state.feedback_gap_max_ms,
+                               state.feedback_age_ms >= ROBOT_FEEDBACK_TIMEOUT_MS
+                                   ? " STALE" : "");
+                    }
+                    else
+                    {
+                        printf(", NO MEASUREMENT FEEDBACK");
+                    }
                     for (uint8_t i = 0; i < POSE_JOINT_COUNT; i++)
                     {
                         if ((MotorId_t)id == active_targets[i].joint)
@@ -471,15 +553,24 @@ int main(void)
                 }
                 /* Service feedback between the blocking serial output lines. */
                 RobStride_CAN_Process();
+                RobStride_UpdateOnlineStatus();
+                MonitorPoseHealth();
+                if (pose_state == POSE_STOPPING)
+                {
+                    break;
+                }
             }
-            printf(
-                "Batch duration: last=%lu max=%lu ms; "
-                "start gap: last=%lu max=%lu ms\r\n",
-                (unsigned long)last_batch_duration_ms,
-                (unsigned long)max_batch_duration_ms,
-                (unsigned long)last_batch_gap_ms,
-                (unsigned long)max_batch_gap_ms
-            );
+            if (pose_state != POSE_STOPPING)
+            {
+                printf(
+                    "Batch duration: last=%lu max=%lu ms; "
+                    "start gap: last=%lu max=%lu ms\r\n",
+                    (unsigned long)last_batch_duration_ms,
+                    (unsigned long)max_batch_duration_ms,
+                    (unsigned long)last_batch_gap_ms,
+                    (unsigned long)max_batch_gap_ms
+                );
+            }
         }
 
         if (user_button_pressed)
@@ -517,6 +608,13 @@ int main(void)
                 pose_state = POSE_STOPPING;
             }
         }
+        /* Starting a pose can process new feedback while enabling motors.
+         * Recheck it before submitting any position command.
+         */
+        RobStride_CAN_Process();
+        RobStride_UpdateOnlineStatus();
+        MonitorPoseHealth();
+
         if (pose_state == POSE_TRANSITIONING)
         {
             uint32_t now = HAL_GetTick();

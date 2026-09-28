@@ -182,48 +182,81 @@ void RobotJoints_Init(void)
     {
         .sign = +1,
 
-        .motor_reference_rad = -0.177f,
+        .motor_reference_rad = -0.211053f,
         .joint_reference_rad = 134.82f * DEG_TO_RAD,
 
-        .min_rad = 0.811f,
-        .max_rad = 2.34f
+        .min_rad = 0.8379f,
+        .max_rad = 2.353f
     };
 
     joint_config[MOTOR_FR_KFE] = (JointConfig_t)
     {
         .sign = -1,
 
-        .motor_reference_rad = +0.184f,
+        .motor_reference_rad = +0.204553f,
         .joint_reference_rad = 134.82f * DEG_TO_RAD,
 
-        .min_rad = 0.843f,
-        .max_rad = 2.344f
+        .min_rad = 0.8562f,
+        .max_rad = 2.353f
     };
 
     joint_config[MOTOR_RL_KFE] = (JointConfig_t)
     {
         .sign = +1,
 
-        .motor_reference_rad = +4.000f,
+        .motor_reference_rad = +3.978647f,
         .joint_reference_rad = 134.82f * DEG_TO_RAD,
 
-        .min_rad = 0.821f,
-        .max_rad = 2.39f
+        .min_rad = 0.8535f,
+        .max_rad = 2.353f
     };
 
     joint_config[MOTOR_RR_KFE] = (JointConfig_t)
     {
         .sign = -1,
 
-        .motor_reference_rad = +5.525f,
+        .motor_reference_rad = +5.516853f,
         .joint_reference_rad = 134.82f * DEG_TO_RAD,
 
-        .min_rad = 0.82f,
-        .max_rad = 2.35f
+        .min_rad = 0.8309f,
+        .max_rad = 2.353f
     };
 }
 
 /* Joint state / target inspection */
+
+JointResult_t RobotJoints_CheckHealth(MotorId_t joint)
+{
+    if (!RobotJoints_IsValid(joint))
+    {
+        return JOINT_INVALID_ID;
+    }
+
+    const RobStride_Motor_t *motor = RobStride_GetMotor(joint);
+    if (motor == NULL || !motor->online)
+    {
+        return JOINT_OFFLINE;
+    }
+
+    if (motor->fault_bits != 0)
+    {
+        return JOINT_FAULT;
+    }
+
+    if (!motor->feedback_received)
+    {
+        return JOINT_NO_FEEDBACK;
+    }
+
+    /* Unsigned subtraction also handles the HAL tick counter wrapping. */
+    if ((uint32_t)(HAL_GetTick() - motor->last_feedback_ms) >=
+        ROBOT_FEEDBACK_TIMEOUT_MS)
+    {
+        return JOINT_STALE_FEEDBACK;
+    }
+
+    return JOINT_OK;
+}
 
 uint8_t RobotJoints_GetState(
     MotorId_t joint,
@@ -271,6 +304,12 @@ uint8_t RobotJoints_GetState(
 
     state->fault_bits =
         motor->fault_bits;
+
+    state->feedback_received = motor->feedback_received;
+    state->feedback_age_ms = motor->feedback_received
+        ? (uint32_t)(HAL_GetTick() - motor->last_feedback_ms) : 0;
+    state->feedback_gap_last_ms = motor->feedback_gap_last_ms;
+    state->feedback_gap_max_ms = motor->feedback_gap_max_ms;
 
     return 1;
 }
@@ -345,22 +384,10 @@ JointResult_t RobotJoints_ValidatePosition(MotorId_t joint, float position_rad)
 
 JointResult_t RobotJoints_Enable(MotorId_t joint)
 {
-    if (!RobotJoints_IsValid(joint))
+    JointResult_t health = RobotJoints_CheckHealth(joint);
+    if (health != JOINT_OK)
     {
-        return JOINT_INVALID_ID;
-    }
-
-    const RobStride_Motor_t *motor =
-        RobStride_GetMotor(joint);
-
-    if (motor == NULL || !motor->online)
-    {
-        return JOINT_OFFLINE;
-    }
-
-    if (motor->fault_bits != 0)
-    {
-        return JOINT_FAULT;
+        return health;
     }
 
     if (RobStride_Enable(joint) != HAL_OK)
@@ -394,22 +421,10 @@ JointResult_t RobotJoints_Command(
     float kp,
     float kd)
 {
-    if (!RobotJoints_IsValid(joint))
+    JointResult_t health = RobotJoints_CheckHealth(joint);
+    if (health != JOINT_OK)
     {
-        return JOINT_INVALID_ID;
-    }
-
-    const RobStride_Motor_t *motor =
-        RobStride_GetMotor(joint);
-
-    if (motor == NULL || !motor->online)
-    {
-        return JOINT_OFFLINE;
-    }
-
-    if (motor->fault_bits != 0)
-    {
-        return JOINT_FAULT;
+        return health;
     }
 
     const JointConfig_t *config =

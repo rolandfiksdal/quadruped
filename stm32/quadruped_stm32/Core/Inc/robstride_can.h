@@ -48,6 +48,14 @@ typedef struct
 
     uint32_t last_update_ms;
 
+    /* Only measurement frames update these; device discovery does not.
+     * Timestamps describe main-loop processing, not sensor sampling/CAN arrival.
+     */
+    uint8_t feedback_received;
+    uint32_t last_feedback_ms;
+    uint32_t feedback_gap_last_ms;
+    uint32_t feedback_gap_max_ms;
+
 } RobStride_Motor_t;
 
 /* Initialization / processing */
