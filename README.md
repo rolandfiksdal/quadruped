@@ -1,10 +1,10 @@
 ﻿# Custom 12-DOF Quadruped Robot
 
-A personal robotics project built around 12 RobStride actuators and an STM32 controller, with a Jetson / ROS 2 layer planned for higher-level control. The project spans mechanical assembly, power and CAN wiring, embedded C, and motion control.
+A personal robotics project covering mechanical design, embedded motor control, and leg kinematics. It uses 12 RobStride actuators and an STM32 controller, with a Jetson / ROS 2 layer planned for higher-level control.
 
-**Current status:** the robot is assembled and can move between preset poses. I have tested placing it on the ground in its retracted pose, commanding it to stand with the button, and returning it to retracted. Walking and active balance control are still planned.
+**Current status:** the assembled robot performs button-controlled pose transitions, including standing from a retracted pose on the ground and returning to retracted. A separate Python model now implements planar and 3D leg kinematics, crawl gait timing, and support-triangle analysis. The gait animation is offline; walking and active balance control have not been demonstrated on the robot.
 
-*Updated: 20 September 2026.*
+*Updated: 28 September 2026.*
 
 ## Photos and videos
 
@@ -12,7 +12,7 @@ A personal robotics project built around 12 RobStride actuators and an STM32 con
 
 *Leg mechanism with the cover removed.*
 
-[![Watch the pose sequence on the floor](https://img.youtube.com/vi/kTkdTzKSAXw/hqdefault.jpg)](https://www.youtube.com/watch?v=R-0c6qNww3c)
+[![Watch the pose sequence on the floor](https://img.youtube.com/vi/R-0c6qNww3c/hqdefault.jpg)](https://www.youtube.com/watch?v=R-0c6qNww3c)
 
 *Pose sequence physical test — recorded 21 September 2026.*
 
@@ -23,17 +23,61 @@ A personal robotics project built around 12 RobStride actuators and an STM32 con
 - Joint calibration, position limits, and individual-leg and all-leg commands are implemented.
 - Button-controlled pose sequencing has been tested on the robot, including standing from retracted and returning to retracted on the ground.
 
-Pose changes currently use a 2 second smooth transition, with joint targets updated at 50 Hz. The firmware sequence is:
+Pose changes currently use a two-second smooth transition, with joint targets updated at 50 Hz. The firmware sequence is:
 
 ```text
 Disabled -> Retracted -> Standing -> Retracted -> Resting -> Disabled
 ```
 
-The BMI088 IMU driver is present, but sensing is not yet integrated into motion control. Motor-health monitoring and feedback timeout handling are the next firmware priorities.
+Motor-health monitoring requests all motors stop on offline, faulted, or missing/stale measurement state during movement or holding. Holding-fault injection and MCU-reset startup stopping have been tested on hardware. Feedback freshness and malformed-frame handling have offline regression coverage; the provisional 500 ms timeout and remaining physical failure cases still need validation. Stop requests are not acknowledged proof of motor disable. See the [validation procedure](docs/motor-health-validation.md).
+
+## Offline kinematics and gait model
+
+- Planar and 3D forward/inverse kinematics, including the lateral HAA offset and mirrored leg geometry.
+- Geometric reach checks and shared joint-limit checks.
+- Swing/stance trajectories with matching endpoint velocities and four-leg phase offsets.
+- Signed support margin and a Matplotlib viewer with pause and a time slider.
+
+![Offline support-triangle simulation](docs/media/gait-support-margin.png)
+
+*A simulated gait frame: blue feet are scheduled stance contacts; orange is swing. The star is an assumed COM projection. This is a geometric model, not a dynamics simulation or a hardware walking result.*
+
+Run from the repository root (tested with Python 3.14.3 and Matplotlib 3.11.1).
+On Windows:
+
+```powershell
+python -m venv .venv
+.venv\Scripts\python -m pip install -r requirements.txt
+.venv\Scripts\python animate_gait.py
+```
+
+On macOS/Linux, use `python3` to create the environment and `.venv/bin/python`
+for the install/run commands. Run `python leg_kinematics.py` for the text
+simulation. The model itself uses only the Python standard library. See
+[coordinate conventions and model limits](docs/kinematics.md).
+
+## Verification
+
+Run the offline geometry tests without connecting any hardware:
+
+```sh
+python -m unittest discover -s tests -p "test_kinematics.py" -v
+```
+
+They cover 3D FK/IK round trips, coordinate transforms, joint/reach boundaries, gait timing, and support margins under different vertex orders.
+
+The firmware regression harness compiles the real CAN/joint modules and runs them with a fake HAL in ARM emulation:
+
+```sh
+python -m pip install --target build/test-deps unicorn==2.1.4 pyelftools==0.33
+python tests/run_feedback_tests.py --cc /path/to/arm-none-eabi-gcc
+```
+
+To build the firmware, import `stm32/quadruped_stm32` as an existing STM32CubeIDE project and build its Debug configuration. Generated build output is excluded from Git. Offline checks do not establish physical stability or motor-stop delivery.
 
 ## Hardware
 
-The robot is my original CAD design, with structural parts 3D printed in PPA-CF. It currently weighs approximately 15 kg, putting it in the same weight class as the Unitree Go2.
+The robot is my original CAD design, with structural parts 3D printed in PPA-CF. It currently weighs approximately 15 kg.
 
 | Component | Role |
 | --- | --- |
@@ -48,15 +92,15 @@ Each leg has hip abduction/adduction, hip flexion/extension, and knee flexion/ex
 
 ## Next steps
 
-1. Improve motor-health checks, feedback freshness tracking, and fault handling.
-2. Test standing over longer periods and monitor actuator temperatures.
-3. Develop leg kinematics and integrate IMU measurements.
-4. Add Jetson / ROS 2 communication, gamepad control, and body stabilization.
-5. Progress to weight shifting, stepping, and walking. Perception is a longer-term goal.
+1. Connect world/body/leg transforms to 3D IK for body movement with planted feet.
+2. Plan body shifts with positive support clearance and validate the model against physical joint conventions.
+3. Complete the remaining feedback-health checks and test standing duration/temperatures.
+4. Integrate BMI088 measurements for orientation estimation and body leveling.
+5. Progress to stepping and walking with feedback, then Jetson / ROS 2 and gamepad control. Perception is a longer-term goal.
 
 ## Code
 
-The repository currently contains the [STM32CubeIDE firmware project](stm32/quadruped_stm32). Jetson / ROS 2 software is planned.
+The repository contains the [STM32CubeIDE firmware project](stm32/quadruped_stm32) and offline Python experiments. Jetson / ROS 2 software is planned. The BMI088 driver exists, but its measurements are not yet integrated into motion control.
 
 | File | Purpose |
 | --- | --- |
@@ -64,3 +108,6 @@ The repository currently contains the [STM32CubeIDE firmware project](stm32/quad
 | [robot_joints.c](stm32/quadruped_stm32/Core/Src/robot_joints.c) | Joint calibration, angle conversion, limits, and commands. |
 | [robstride_can.c](stm32/quadruped_stm32/Core/Src/robstride_can.c) | Actuator CAN protocol and feedback. |
 | [bmi088.c](stm32/quadruped_stm32/Core/Src/bmi088.c) | IMU driver. |
+| [leg_kinematics.py](leg_kinematics.py) | Leg geometry, coordinate transforms, gait trajectories, and support margin. |
+| [animate_gait.py](animate_gait.py) | Offline top-down gait viewer. |
+| [tests/](tests/) | Python geometry tests and firmware feedback regression harness. |

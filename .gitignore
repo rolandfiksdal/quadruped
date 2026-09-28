@@ -5,6 +5,8 @@ build/
 
 # CubeIDE / Eclipse workspace metadata
 .metadata/
+stm32/quadruped_stm32/.settings/com.st.stm32cube.ide.mcu.sfrview.prefs
+        tests/
 
 # OS noise
 .DS_Store
@@ -15,7 +17,9 @@ Thumbs.db
 *.bak
 *.swp
 project_context.md
-__pycache__
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
 actuator manual.pdf
 stm32 manual.pdf
-test.py

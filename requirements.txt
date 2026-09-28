@@ -1,0 +1,2 @@
+# Only the animation needs third-party packages; the model/tests use stdlib.
+matplotlib==3.11.1
