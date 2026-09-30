@@ -62,8 +62,21 @@ remain the two-link planar building blocks used by their 3D counterparts.
   seconds give 397 inside and four on an edge. Zero clearance occurs at
   1, 3, 5, and 7 seconds. This is not a validated stable walking controller.
 
-The next experiment holds FL's world foot center at `(0.21338, 0.19242, 0)` and
-moves the body origin from `(0, 0, 0.25)` to `(0, 0.02, 0.25)`. Its HAA-relative
-target changes from `(0, 0.091, -0.25)` to `(0, 0.071, -0.25)`. World z = 0 in
-this example is foot-center height. Body rotation and gait integration of these
-transforms are future work.
+## Body shift and one forward step
+
+Run `python body_shift_demo.py` for a separate four-second experiment:
+
+1. With all four feet planted, shift the body 20 mm right over two seconds.
+2. Hold the body fixed and swing FL 40 mm forward over two seconds, reaching
+   30 mm clearance at the midpoint and returning to its original world height.
+
+The body moves from `(0, 0, 0.25)` to `(0, -0.02, 0.25)`. FL's planned touchdown
+is `(0.25338, 0.19242, 0)`. World z = 0 is initial foot-center height. The other
+three feet remain fixed, and the assumed COM margin to their triangle stays
+at +14.85 mm during swing. During the preceding shift, this is a prospective
+three-foot margin; all four feet are still planted.
+
+Each sample checks joint limits and reconstructs the requested world foot
+positions through FK. The final target becomes FL's reference for a future
+step; touchdown is planned, not detected. Body rotation, support transfer to
+the next leg, and integration with the repeating gait are future work.

@@ -61,7 +61,7 @@ simulation. The model itself uses only the Python standard library. See
 Run the offline geometry tests without connecting any hardware:
 
 ```sh
-python -m unittest discover -s tests -p "test_kinematics.py" -v
+python -m unittest discover -s tests -p "test_*.py" -v
 ```
 
 They cover 3D FK/IK round trips, coordinate transforms, joint/reach boundaries, gait timing, and support margins under different vertex orders.
