@@ -4,7 +4,7 @@ A personal robotics project covering mechanical design, embedded motor control, 
 
 **Current status:** the assembled robot performs button-controlled pose transitions, including standing from a retracted pose on the ground and returning to retracted. A separate Python model now implements planar and 3D leg kinematics, crawl gait timing, and support-triangle analysis. The gait animation is offline; walking and active balance control have not been demonstrated on the robot.
 
-*Updated: 28 September 2026.*
+*Updated: 1 October 2026.*
 
 ## Photos and videos
 
@@ -37,6 +37,7 @@ Motor-health monitoring requests all motors stop on faults, offline motors, or m
 - Geometric reach checks and shared joint-limit checks.
 - Swing/stance trajectories with matching endpoint velocities and four-leg phase offsets.
 - Signed support margin and a Matplotlib viewer with pause and a time slider.
+- A separate 3D body-shift and forward-step demo with fixed world-frame stance feet.
 
 ![Offline support-triangle simulation](docs/media/gait-support-margin.png)
 
@@ -56,6 +57,18 @@ for the install/run commands. Run `python leg_kinematics.py` for the text
 simulation. The model itself uses only the Python standard library. See
 [coordinate conventions and model limits](docs/kinematics.md).
 
+Run the body-shift and single-step experiment separately:
+
+```sh
+python body_shift_demo.py
+```
+
+The body shifts 20 mm right with all feet planted, then holds position while
+the front-left foot moves 40 mm forward with 30 mm clearance. Each phase takes
+two seconds. The demo checks joint limits and reconstructs world foot positions
+through FK; the assumed COM has a +14.85 mm support margin during swing. This is
+a console-based geometric experiment, separate from the repeating gait viewer.
+
 ## Verification
 
 Run the offline geometry tests without connecting any hardware:
@@ -64,7 +77,10 @@ Run the offline geometry tests without connecting any hardware:
 python -m unittest discover -s tests -p "test_*.py" -v
 ```
 
-They cover 3D FK/IK round trips, coordinate transforms, joint/reach boundaries, gait timing, and support margins under different vertex orders.
+They cover 3D FK/IK round trips, coordinate transforms, joint/reach boundaries,
+gait timing, and support margins under different vertex orders. The single-step
+test also checks phase continuity, fixed stance feet, swing clearance, and the
+planned touchdown position.
 
 The firmware regression harness compiles the real CAN/joint modules and runs them with a fake HAL in ARM emulation:
 
@@ -92,11 +108,11 @@ Each leg has hip abduction/adduction, hip flexion/extension, and knee flexion/ex
 
 ## Next steps
 
-1. Connect world/body/leg transforms to 3D IK for body movement with planted feet.
-2. Plan body shifts with positive support clearance and validate the model against physical joint conventions.
-3. Complete the remaining feedback-health checks and test standing duration/temperatures.
-4. Integrate BMI088 measurements for orientation estimation and body leveling.
-5. Progress to stepping and walking with feedback, then Jetson / ROS 2 and gamepad control. Perception is a longer-term goal.
+1. Bring the robot model and existing trajectories into a desktop ROS 2 / RViz workspace.
+2. Extend the single-step demo to support transfer and a complete four-leg crawl sequence.
+3. Validate model joint conventions on hardware and develop the host-to-STM32 telemetry/command link.
+4. Complete the remaining feedback-health checks, characterize standing duration/temperatures, and integrate BMI088 orientation estimation.
+5. Progress to body leveling and walking with feedback, then onboard Jetson deployment and gamepad control. Perception is a longer-term goal.
 
 ## Code
 
@@ -110,4 +126,5 @@ The repository contains the [STM32CubeIDE firmware project](stm32/quadruped_stm3
 | [bmi088.c](stm32/quadruped_stm32/Core/Src/bmi088.c) | IMU driver. |
 | [leg_kinematics.py](leg_kinematics.py) | Leg geometry, coordinate transforms, gait trajectories, and support margin. |
 | [animate_gait.py](animate_gait.py) | Offline top-down gait viewer. |
+| [body_shift_demo.py](body_shift_demo.py) | Offline body shift followed by one forward step, with IK/FK checks. |
 | [tests/](tests/) | Python geometry tests and firmware feedback regression harness. |
