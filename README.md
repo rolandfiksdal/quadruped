@@ -8,6 +8,10 @@ A personal robotics project covering mechanical design, embedded motor control, 
 
 ## Photos and videos
 
+![CAD render of the robot's exterior design](docs/media/Robot%20Full%20Assembly.jpg)
+
+*Solidworks render showcasing the robot's outer design.*
+
 ![Leg mechanism with the cosmetic cover removed](docs/media/leg-uncovered.jpg)
 
 *Leg mechanism with the cover removed.*
